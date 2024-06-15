@@ -1,0 +1,194 @@
+title: "Raport z projektu zaliczeniowego"
+author: "Paweł Drakoniewicz"
+date: "2024-02-13"
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Wprowadzanie danych
+library(readr)
+dane <-read_csv("Diabetes.csv")
+# Wprowadzanie potrzebnych pakietów
+library(HDclassif)
+library(cluster)
+library(randomForest)
+library(moments)
+library(outliers)
+library(nortest)
+library(silvermantest)
+library(heatmaply)
+```
+
+## Opis danych i cel projektu
+Dane pochodzą z bazy danych dotyczącej cukrzycy Indian Pima(https://www.kaggle.com/datasets/uciml/pima-indians-diabetes-database) i składają się z 8 cech opisujących różne parametry zdrowotne pacjentów. Każda obserwacja obejmuje informacje takie jak liczba ciąż, poziom glukozy, ciśnienie krwi, grubość fałdu skórnego, poziom insuliny, wskaźnik masy ciała (BMI), funkcja rodowodu cukrzycy oraz wiek. Zmienna wynikowa klasyfikuje pacjentów jako 0 (brak cukrzycy) lub 1 (cukrzyca).
+
+Celem projektu jest analiza danych oraz stworzenie modelu klasyfikacyjnego, który będzie w stanie przewidywać ryzyko wystąpienia cukrzycy na podstawie parametrów zdrowotnych pacjentów. W ramach analizy danych zostaną zastosowane różne techniki, w tym statystyki opisowe, testy normalności, testy wielomodalności, analiza korelacji, analiza składowych głównych (PCA), klasteryzacja, oraz modele klasyfikacyjne, takie jak Random Forest. Ostatecznym celem projektu jest opracowanie skutecznego narzędzia diagnostycznego, które pomoże w identyfikacji osób zwiększających ryzyko wystąpienia cukrzycy na podstawie ich danych zdrowotnych.
+
+### Statystyki sumaryczne zmiennych
+```{r sumaryczne}
+cat('Podstawowe miary statystyczne','\n')
+apply(dane[,-ncol(dane)],2,summary)
+
+cat('sd','\n')
+apply(dane[, -ncol(dane)], 2, sd)
+
+cat('Skośność','\n')
+apply(dane[, -ncol(dane)], 2, skewness)
+```
+Wnioski:
+
+Ciaza: 
+-Ma średnią wartość wynoszącą 3.85, co jest najwyższą średnią spośród wszystkich zmiennych.
+-Posiada również wysokie odchylenie standardowe (3.37), co sugeruje duże zróżnicowanie w liczbie ciąż wśród badanych.
+-Skośność wynosząca 0.90 wskazuje na lekko prawoskośny rozkład danych.
+
+Glukoza:
+-Średnia glukozy wynosi 120.89, co plasuje ją na drugim miejscu pod względem wartości średniej.
+-Odchylenie standardowe (31.97) jest relatywnie wysokie, co może oznaczać znaczną zmienność poziomu glukozy w próbie.
+-Skośność bliska zeru (0.17) sugeruje, że rozkład danych jest symetryczny.
+
+Cisnienie krwi:
+-Średnia wartość ciśnienia krwi wynosi 69.11, a odchylenie standardowe to 19.36.
+-Skośność wynosząca -1.84 wskazuje na lewoskośny rozkład danych.
+
+Grubosc skory:
+-Średnia grubości skóry wynosi 20.54, a odchylenie standardowe to 15.95.
+-Skośność bliska zeru (0.11) sugeruje symetryczny rozkład danych w tej zmiennej.
+
+Insulina:
+-Posiada wysoką średnią wartość (79.80) oraz wysokie odchylenie standardowe (115.24), co sugeruje znaczną zmienność w poziomie insuliny wśród badanych.
+-Dodatnia skośność (2.27) wskazuje na prawoskośny rozkład danych
+
+BMI:
+-Średnie BMI wynosi 31.99, a odchylenie standardowe to 7.88.
+-Skośność bliska zeru (-0.43) sugeruje, że rozkład danych jest względnie symetryczny.
+
+Funkcja rodowodu cukrzycy (Funkcja rodowodu cukrzycy):
+-Ma średnią wartość wynoszącą 0.47, co sugeruje umiarkowany poziom funkcji rodowodu cukrzycy.
+-Wartość skośności (1.92) wskazuje na prawoskośny rozkład danych.
+
+Wiek:
+-Średni wiek badanych wynosi 33.24, a odchylenie standardowe to 11.76.
+-Dodatnia skośność (1.13) wskazuje na prawoskośny rozkład danych
+
+```{r histogramy}
+for(i in 1:8) hist(data.frame(dane)[,i], main=colnames(dane)[i])
+```
+Wniosek: Z analizy histogramow wynika, ze normalnosc warto jest testowac dla: glukozy, ciśnienia krwi,BMI oraz funkcji rodowodu cukrzycy, zaś wielomodalnosc warto jest testowac dla: ciśnienia krwi, BMI, glukozy, grubość skóry
+```{r nortest}
+#Test Shapiro-Wilka na normalność
+shapiro.test(dane$Glukoza)
+shapiro.test(dane$"Cisnienie krwi")
+shapiro.test(dane$BMI)
+shapiro.test(dane$"Funkcja rodowodu cukrzycy")
+
+```
+Wniosek:Ogólnie rzecz biorąc, na podstawie testu Shapiro-Wilka można stwierdzić, że żadna z tych zmiennych nie wykazuje rozkładu normalnego. Prawdopodobnie będą one charakteryzować się innymi rodzajami rozkładów.
+
+```{r silverman}
+
+# Test Silvermana na wielomodalność
+silverman.test(dane$Glukoza,k=1)
+silverman.test(dane$"Cisnienie krwi",k=1)
+silverman.test(dane$"Grubosc skory",k=1)
+silverman.test(dane$BMI,k=1)
+```
+Wniosek: Wartości p-value dla Glukozy, Ciśnienia krwi, Grubości skóry i BMI są mniejsze niż ustalony poziom istotności (0.05), co sugeruje, że te zmienne są wielomodalne, a nie unimodalne.
+
+``` {r nrofmodes}
+nr.modes(hist(dane$Glukoza)$counts)
+nr.modes(hist(dane$"Cisnienie krwi")$counts)
+nr.modes(hist(dane$"Grubosc skory")$counts)
+nr.modes(hist(dane$BMI)$counts)
+```
+Wniosek: Rozkład ciśnienia krwi, grubości skóry oraz BMI jest trójmodalny, natomiast na podstawie histogramu glukoza wyszła jednomodalna.Jeśli chodzi o glukoze, sprzeczność może wynikać z ograniczeń lub czułości obu metod w wykrywaniu wielomodalności.
+
+
+```{r Grubbs}
+for (i in 1:8) {
+  print(grubbs.test(data.frame(dane)[,i]))
+}
+```
+Wnioski: Przy dopuszczalnym błędzie 5%, zmienne, które mają obserwacje odstające na podstawie testu Grubbsa, to: ciąże, grubość skóry , insulina, BMI, funkcja rodowodu cukrzycy , wiek.
+
+
+### Analiza korelacji i PCA
+Macierz korelacji liczymy na dwa sposoby: wsp Pearsona i Kendalla aby upewnic sie jaki jest wplyw obserwacji odstajacych
+```{r Pearson}
+heatmaply_cor(cor(dane[, -ncol(dane)], method = 'pearson'), main = "heatmapa dla Pearsona")
+```
+Wnioski: Zmienne:
+-Ciaze i Wiek są dodatnio skorelowane,
+-Grubosc skory i Insulina są dodatnio skorelowane
+-Bmi i Grubosc skory są słabiej dodatnio skorelowane
+-Glukoza i Insulina są słabiej dodatnio skorelowane
+-BMI i Cisnienie krwi są słabiej dodatnio skorelowane 
+
+``` {r Kendall}
+heatmaply_cor(cor(dane[, -ncol(dane)], method = 'kendall'),main = "heatmapa dla Kendall")
+```
+Wniosek: jedyna zmiana w porownaniu z wsp Pearsona jest słabsza korelacja Glukozy i Insuliny oraz Ciśnienia krwi z BMI
+
+Liczymy PCA
+```{r PCA}
+pca.dane <- prcomp(dane[, 1:8])
+summary(pca.dane)
+pca.dane$rotation[, 1]
+df_pca <- data.frame(x = pca.dane$x[, 1], y = pca.dane$x[, 2], z = pca.dane$x[, 3], type = dane$Wynik)
+plot_ly(df_pca, x = ~x, y = ~y, z = ~z, color = ~type, type = 'scatter3d')
+```
+Wniosek: Pierwsza składowa główna wyraźnie dominuje, posiadając 88.85% wariancji. Poziom insuliny ma największy wpływ na tę składową.Pozostałe składowe główne również mają pewne znaczenie, ale proporcje wariancji, które wyjaśniają, są znacznie mniejsze. Składowe główne mogą mieć istotne znaczenie dla klasyfikacji, jednak potrzebne są dalsze analizy, aby ocenić ich dokładny wpływ na rozróżnienie między klasami.
+
+
+### Klasyfikacja bez nadzoru
+Uzyjemy algorytmu k-srednich
+``` {r kmeans}
+km.dane <- kmeans(dane[, 1:8], centers = 3)
+table(km.dane$cluster, dane$Wynik)
+df_km <- data.frame(x = pca.dane$x[, 1], y = pca.dane$x[, 2], z = pca.dane$x[, 3], type = as.factor(km.dane$cluster))
+plot_ly(df_km, x = ~x, y = ~y, z = ~z, color = ~type, type = 'scatter3d')
+```
+Wniosek: Ludzie bez cukrzycy zawarci są w większości w klastrze 1, w mniejszej ilości w klastrze 2 i parę w klastrze 3, natomiast ludzie z cukrzycą są przeważnie rozrzuceni w klastrach 1 i 2 oraz niewielka część w klastrze 3
+
+Co z iloscia klastrow?
+``` {r ile.klastrow}
+wss <- NA
+for (i in 2:10) {
+  wss <- c(wss, kmeans(dane[, 1:8], centers = i)$tot.withinss)
+}
+plot(1:length(wss), wss)
+```
+Wnioski: Stosujac metodę łokcia optymalną ilością jest 3 lub 4 klastry
+
+
+Analiza aglomeracyjna
+``` {r diana}
+plot(agnes(dist(dane[, 1:8], method = 'minkowski', p = 1), diss=TRUE))
+```
+```{r diana}
+plot(diana(dane[, 1:8]))
+```
+wnioski: Metoda aglomeracyjna i podzialowa daja bardzo zblizone rezultaty
+
+### Klasyfikacja pod nadzorem
+Zastosujemy metode lasow losowych
+
+```{r las losowy}
+rf_cv <- rfcv(dane[, 1:8], as.factor(dane$Wynik))
+rf_cv$error.cv
+```
+Wnioski: Minimalny błąd walidacji krzyżowej mamy dla 4 cech
+```{r istne cechy}
+rf_imp <- randomForest(dane[, 1:8], as.factor(dane$Wynik), importance = TRUE)
+varImpPlot(rf_imp)
+```
+Wnioski: Według kryterium spadku dokładności mamy: glukoze, BMI, wiek, ciąże jako najistotniejsze cechy.
+
+```{r model lasu}
+rf_model <- randomForest(dane[, c(2, 6, 8, 1)], as.factor(dane$Wynik))
+rf_model$confusion
+```
+Wnisoki: Przy tych 4 cechach maksymalny błąd klasyfikacji wynosi 39%.
+
+## Wnioski końcowe
+Analiza danych sugeruje, że istnieją istotne zależności między zmiennymi opisującymi zdrowie pacjentów a wystąpieniem cukrzycy. Modele klasyfikacyjne mogą być użyteczne do identyfikacji osób zwiększających ryzyko cukrzycy na podstawie ich danych zdrowotnych. Jednak konieczne są dalsze badania i weryfikacja modeli w celu uzyskania bardziej precyzyjnych wyników.
